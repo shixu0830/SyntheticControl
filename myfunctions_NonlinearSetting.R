@@ -52,11 +52,7 @@ run.one = function(rep,n.units,t,t0){
     C.W <<- cbind(C[,ind.ctrl[-ind.Z]])
   }
   #### define vcov assumption on epsilon
-  if(dist.epsilon=="iid"){
-    vcov.epsilon="iid"
-  }else{
-    vcov.epsilon="HAC"
-  }
+  vcov.epsilon="iid"
   # #### SC methods
   # if(addcov==T){
   #   SC.model = try(

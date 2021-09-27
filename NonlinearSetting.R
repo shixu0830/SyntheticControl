@@ -9,7 +9,6 @@ rm(list=ls())
 n.rep=10000
 t0.all=c(500,1000,5000) ##larger sample size
 n.units.all=c(1+2,1+4,1+6) ##less units
-arg1 = as.numeric(Sys.getenv("arg1")) ## arg1=1,2 dist.epsilon
 arg2 = as.numeric(Sys.getenv("arg2")) ## arg2=0,1 addcov
 arg3 = as.numeric(Sys.getenv("arg3")) ## arg3=1-10 myseeds
 myfilepath = ""
@@ -42,7 +41,6 @@ for(n.units in n.units.all){
 }#for(n.units in c(1+2,1+4,1+6))
 
 save(rslt.all,file=paste0(myfilepath,"NP",
-                          "epsilon_",dist.epsilon,
                           "cov_",addcov,
                           "t0_",paste(t0.all,collapse="_"),
                           "nunits_",paste(n.units.all,collapse="_"),
