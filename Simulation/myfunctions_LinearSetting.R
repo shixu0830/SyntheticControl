@@ -1,80 +1,100 @@
-library(Synth)
-run.one = function(rep,n.units,t,t0){
-  set.seed(rep)
-  n.ctrl <<- n.units-1
-  n.Z <<- floor(n.ctrl/2)
-  n.W <<- n.ctrl-n.Z
-  ind.trt <<- 1
-  ind.ctrl <<- setdiff(1:n.units,ind.trt)
-  ind.Z <<- 1:n.Z
+
+## implement one run of simulation
+run.one <- function(seed, n.units, t, t0, mysd, theta, true.beta, addcov = F,
+                    dist.epsilon, epsilonARMAcor = 0.1){
+  set.seed(seed)
+  .env <- environment()
+  
+  n.ctrl <- n.units - 1 ## one treated unit
+  n.Z <- floor(n.ctrl / 2) ## use half of the control units as proxies
+  n.W <- n.ctrl - n.Z ## number of donors
+  ind.trt <- 1 ## index of treated units
+  ind.ctrl <- setdiff(1:n.units, ind.trt)
+  ind.Z <- 1:n.Z ## index of proxies among the control units
+  
+  ## indicator of treatment
+  X <<- c(rep(0, t0), rep(1, t - t0))
+  
   ### gen lambda and U
-  U.lambda = generate.U(n.units,t)
-  U = U.lambda$U
-  U.trt.prob = U.lambda$U.trt.prob
-  lambda.t = U.lambda$lambda.t
+  U.lambda <- generate.U(n.units, t, mysd)
+  U <- U.lambda$U ## loading matrix
+  U.trt.prob <- U.lambda$U.trt.prob
+  lambda.t <- U.lambda$lambda.t
   ### generate covariates
-  if(addcov==T){
-    C=replicate(n=n.units,expr=rnorm(t,sd=mysd))
+  if(addcov == T){
+    C <- replicate(n = n.units, expr = rnorm(t, sd = mysd))
   }
   ### generate outcome
   Y.allunits = NULL
   for(i in 1:n.units){
     ### first generate stationary weakly dependent error term epsilon
     if(dist.epsilon=="iid"){
-      epsilon = rnorm(t,mean=0,sd=mysd)
+      epsilon = rnorm(t, mean = 0, sd = mysd)
     }else if(dist.epsilon=="AR"){
-      epsilon = as.numeric(arima.sim(n = t, list(ar = epsilonARMAcor), innov=rnorm(t)))
+      epsilon = as.numeric(arima.sim(n = t, list(ar = epsilonARMAcor), innov = rnorm(t)))
     }else{
       print('unrecognized dist.epsilon')
       break
     }
     ### then generate outcome for all units
     if(addcov==T){
-      Yi = c(C[,i]*theta + U[i,]%*%t(lambda.t) + epsilon)
+      Yi = c(C[,i] * theta + U[i, ] %*% t(lambda.t) + epsilon)
     }else{
-      Yi = c(U[i,]%*%t(lambda.t) + epsilon)
+      Yi = c(U[i, ] %*% t(lambda.t) + epsilon)
     }
-    Y.allunits = cbind(Y.allunits,Yi)
+    Y.allunits = cbind(Y.allunits, Yi)
   }
   colnames(Y.allunits)=1:(n.ctrl+1)
-  Y.allunits <<- Y.allunits
+  Y.allunits <- Y.allunits
+  
   ##
-  Y <<- Y.allunits[,ind.trt]+true.beta*X
-  Z <<- cbind(Y.allunits[,ind.ctrl[ind.Z]])
-  W <<- cbind(Y.allunits[,ind.ctrl[-ind.Z]])
-  U.Y <<- cbind(U[ind.trt,])
-  U.Z <<- t(U[ind.ctrl[ind.Z],])
-  U.W <<- t(U[ind.ctrl[-ind.Z],])
-  if(addcov==T){
+  Y <<- Y.allunits[,ind.trt] + true.beta * X
+  V <<- Y.allunits[,ind.ctrl]
+  Z <- cbind(Y.allunits[,ind.ctrl[ind.Z]])
+  W <- cbind(Y.allunits[,ind.ctrl[-ind.Z]])
+  U.Y <- cbind(U[ind.trt,])
+  U.Z <- t(U[ind.ctrl[ind.Z],])
+  U.W <- t(U[ind.ctrl[-ind.Z],])
+  if(addcov == T){
     C.Y <<- cbind(C[,ind.trt])
-    C.Z <<- cbind(C[,ind.ctrl[ind.Z]])
-    C.W <<- cbind(C[,ind.ctrl[-ind.Z]])
+    C.Z <- cbind(C[,ind.ctrl[ind.Z]])
+    C.W <- cbind(C[,ind.ctrl[-ind.Z]])
   }
   #### define vcov assumption on epsilon
-  if(dist.epsilon=="iid"){
-    vcov.epsilon="iid"
+  if(dist.epsilon == "iid"){
+    vcov.epsilon <- "iid"
   }else{
-    vcov.epsilon="HAC"
+    vcov.epsilon <- "HAC"
   }
+  
+  
   #### SC methods
-  if(addcov==T){
-    SC.model = try(
-      gmm::gmm(g=Y~-1+Y.allunits[,ind.ctrl]+X+C.Y,
-               x=~-1+Y.allunits[,ind.ctrl]+X+C.Y,
-               vcov=vcov.epsilon),
+  if(addcov == T){
+    fml_g <- as.formula(Y ~ -1 + V + X + C.Y, env = .env)
+    fml_x <- as.formula(~ -1 + V + X + C.Y, env = .env)
+    SC.model <- try(
+      gmm::gmm(g = fml_g,
+               x = fml_x,
+               vcov = vcov.epsilon, prewhite = FALSE),
       silent=TRUE)
-  }else{
-    SC.model = try(
-      gmm::gmm(g=Y~-1+Y.allunits[,ind.ctrl]+X,
-               x=~-1+Y.allunits[,ind.ctrl]+X,
-               vcov=vcov.epsilon),
+  } else {
+    fml_g <- as.formula(Y ~ -1 + V + X, env = .env)
+    fml_x <- as.formula(~ -1 + V + X, env = .env)
+    SC.model <- try(
+      gmm::gmm(g = fml_g,
+               x = fml_x,
+               vcov = vcov.epsilon, prewhite = FALSE),
       silent=TRUE)
   }
-  if(!inherits(SC.model, "try-error")){
-    SC.ate = summary(SC.model)$coef["X","Estimate"]
-    SC.se  = summary(SC.model)$coef["X","Std. Error"]
-  }else{
-    SC.ate = SC.se  = NA
+  
+
+  
+  if(class(SC.model) !="try-error"){
+    SC.ate <- summary(SC.model)$coef["X","Estimate"]
+    SC.se <- sqrt(vcovHAC(SC.model, prewhite = FALSE)[n.ctrl + 1, n.ctrl + 1])
+    # SC.se  <- summary(SC.model)$coef["X","Std. Error"]
+  } else {
+    SC.ate <- SC.se <- NA
   }
   # if(addcov==T & addsynth==T){
   #   #####################################
@@ -94,66 +114,73 @@ run.one = function(rep,n.units,t,t0){
   #   SC.ate.constrained=NA
   # }
   #### NC methods
-  if(addcov==T){
+  if(addcov == T){
     ### adjust for covariates
-    data = list(X=X,Y=Y,W=W,Z=Z,C.Y=C.Y,C.W=C.W,C.Z=C.Z)
-    NC2 = mygmm(NC.U.func=NC.U0,data=data,loc.X=1+ncol(W)+1)
-    NC.ate2 = as.numeric(NC2["NC.ate2"])
-    NC.se2 = as.numeric(NC2["NC.se2"])
-    NC.se2.HAC = as.numeric(NC2["NC.se2.HAC"])
+    data <- list(X = X,Y = Y,W = W,Z = Z, C.Y = C.Y, C.W = C.W, C.Z = C.Z)
+    NC2 <- mygmm(NC.U.func = NC.U0, data = data, loc.X = 1 + ncol(W) + 1)
+    NC.ate2 <- as.numeric(NC2["NC.ate2"])  ## 3.170
+    NC.se2 <- as.numeric(NC2["NC.se2"])  ## 0.771
+    NC.se2.HAC <- as.numeric(NC2["NC.se2.HAC"])  ## 0.551
+    
+    
     
     ### ignore covariates
-    NC_ignoreC = mygmm(NC.U.func=NC.U0.nocov,data=data,loc.X=1+ncol(W))
-    NC.ate = as.numeric(NC_ignoreC["NC.ate2"])
-    NC.se = as.numeric(NC_ignoreC["NC.se2"])
-    NC.se.HAC = as.numeric(NC_ignoreC["NC.se2.HAC"])
+    NC_ignoreC <- mygmm(NC.U.func = NC.U0.nocov, data = data, loc.X = 1+ncol(W))
+    NC.ate <- as.numeric(NC_ignoreC["NC.ate2"])
+    NC.se <- as.numeric(NC_ignoreC["NC.se2"])
+    NC.se.HAC <- as.numeric(NC_ignoreC["NC.se2.HAC"])
   }else{
-    data = list(X=X,Y=Y,Z=Z,W=W)
-    NC2 = mygmm(NC.U.func=NC.U0.nocov,data=data,loc.X=1+ncol(W))
-    NC.ate2 = as.numeric(NC2["NC.ate2"])
-    NC.se2 = as.numeric(NC2["NC.se2"])
-    NC.se2.HAC = as.numeric(NC2["NC.se2.HAC"])
+    data <- list(X = X,Y = Y,Z = Z,W = W)
+    NC2 <- mygmm(NC.U.func = NC.U0.nocov, data = data, loc.X = 1 + ncol(W))
+    NC.ate2 <- as.numeric(NC2["NC.ate2"])
+    NC.se2 <- as.numeric(NC2["NC.se2"])
+    NC.se2.HAC <- as.numeric(NC2["NC.se2.HAC"])
     
     NC.ate = NC.se = NC.se.HAC = NA
   }#if(addcov==T){
   
-  return(c(SC.ate=SC.ate, ##unconstrained OLS
-           SE.ate2=NA, ##constrained OLS
-           NC.ate=NC.ate,##NC ignore C
-           NC.ate2=NC.ate2,##NC adjust C
-           SC.se =SC.se, ##unconstrained OLS
-           NC.se =NC.se,NC.se.HAC=NC.se.HAC, ##NC ignore C
-           NC.se2=NC.se2,NC.se2.HAC=NC.se2.HAC##NC adjust C
+  return(c(SC.ate = SC.ate, ##unconstrained OLS
+           SC.ate2 = NA, ##constrained OLS
+           NC.ate = NC.ate,##NC ignore C
+           NC.ate2 = NC.ate2,##NC adjust C
+           SC.se = SC.se, ##unconstrained OLS
+           NC.se = NC.se, NC.se.HAC = NC.se.HAC, ##NC ignore C
+           NC.se2 = NC.se2, NC.se2.HAC = NC.se2.HAC ##NC adjust C
            ))
 }
 
-gen.lambda = function(dist.lambda){
-  mylambda = log(1:t)+rnorm(t,sd=mysd)
+gen.lambda <- function(t, mysd){
+  mylambda <- log(1:t) + rnorm(t, sd = mysd)
   return(mylambda)
 }
 
-generate.U = function(n.units,t){
-  n.Z = floor((n.units-1)/2)
-  n.W = n.units-1-n.Z
-  U_0 = rep(1,n.W)
-  U.mat = matrix(0,ncol=n.W,nrow=n.W)
-  diag(U.mat)=1
-  U = rbind(U_0,U.mat,U.mat)
-  U.w = U[1+1:n.W,]; true.weights=solve(t(U.w))%*%U[1,]
-  U.trt.prob=U%*%rep(1,n.W)
-  lambda.t = cbind(replicate(n=n.W,gen.lambda(dist.lambda)))
-  U.trt.prob = U.trt.prob/sum(U.trt.prob)
-  return(list(U=U,U.trt.prob=U.trt.prob,lambda.t=lambda.t))
+generate.U <- function(n.units, t, mysd){
+  n.Z <- floor((n.units-1)/2) ## one treated unit, half of the control units are proxies
+  n.W <- n.units - 1 - n.Z
+  U_0 <- rep(1, n.W)
+  U.mat <- matrix(0,ncol = n.W, nrow = n.W)
+  diag(U.mat)<-1
+  U <- rbind(U_0, U.mat, U.mat)
+  U.w <- U[1 + 1:n.W,]; true.weights <- solve(t(U.w)) %*% U[1,]
+  U.trt.prob <- U %*% rep(1, n.W)
+  lambda.t <- cbind(replicate(n = n.W, gen.lambda(t, mysd))) ## the number of unmeasured confounders same as number of proxies
+  U.trt.prob <- U.trt.prob / sum(U.trt.prob) ## inverse propability of treatment weights
+  return(list(U = U, U.trt.prob = U.trt.prob,lambda.t = lambda.t))
 }
 
-mygmm = function(NC.U.func,data,loc.X){
-  NC.weights = try(
-    optim(par = rep(0,loc.X),
+mygmm <- function(NC.U.func, data, loc.X){
+  NC.weights <- try(
+    optim(par = rep(0, loc.X),
           fn = GMMF, mrf = NC.U.func,
-          data=data,
-          method = "BFGS", hessian = FALSE)$par,
+          data = data,
+          method = "BFGS", 
+          hessian = FALSE)$par,
     silent=TRUE)
-  var_est = try(HAC_VAREST(bfun=NC.U.func,para=NC.weights,data=data,q=10),silent=TRUE)
+  var_est <- try(HAC_VAREST(bfun = NC.U.func, 
+                           para = NC.weights,
+                           data = data,
+                           q = 10),
+                silent = TRUE)
   if((!inherits(NC.weights, "try-error"))&
      (!inherits(var_est, "try-error"))){
     NC.se2 <- diag(var_est$var)
@@ -168,10 +195,10 @@ mygmm = function(NC.U.func,data,loc.X){
 }
 
 NC.U0.nocov = function(para,data){
-  X=cbind(data$X)
-  Y=cbind(data$Y);
-  Z=cbind(data$Z)
-  W=cbind(data$W)
+  X = cbind(data$X)
+  Y = cbind(data$Y);
+  Z = cbind(data$Z)
+  W = cbind(data$W)
   omega.u = para[1:ncol(W)]
   beta = para[ncol(W)+1]
   instrument = cbind(
@@ -179,31 +206,30 @@ NC.U0.nocov = function(para,data){
     X
   )
   bridge = (
-    X*beta + W%*%omega.u
+    X * beta + W %*% omega.u
   )
-  NC.obj=c(  Y-bridge   )*(instrument)
+  NC.obj = c(Y - bridge) * (instrument)
   return(NC.obj)
 }
 
-NC.U0 = function(para,data){
-  X=cbind(data$X)
-  Y=cbind(data$Y); C.Y=cbind(data$C.Y)
-  Z=cbind(data$Z); C.Z=cbind(data$C.Z)
-  W=cbind(data$W); C.W=cbind(data$C.W)
-  theta.u = para[1]
-  omega.u = para[1+1:ncol(W)]
-  beta = para[1+ncol(W)+1]
-  Ztheta = Z-C.Z*theta.u
-  Comega = C.Y-C.W%*%omega.u
-  instrument = cbind(
+NC.U0 <- function(para,data){
+  X <- cbind(data$X)
+  Y <- cbind(data$Y); C.Y=cbind(data$C.Y)
+  Z <- cbind(data$Z); C.Z=cbind(data$C.Z)
+  W <- cbind(data$W); C.W=cbind(data$C.W)
+  theta.u <- para[1]
+  omega.u <- para[1 + 1:ncol(W)]
+  beta <- para[1 + ncol(W) + 1]
+  Ztheta <- Z - C.Z * theta.u
+  Comega <- C.Y - C.W %*% omega.u
+  instrument <- cbind(
     Ztheta,
     Comega,
     X
   )
-  bridge = (
-    X*beta + W%*%omega.u + Comega*theta.u
-  )
-  NC.obj=c(  Y-bridge  )*(instrument)
+  bridge <- X * beta + W %*% omega.u + Comega * theta.u
+
+  NC.obj <- c(Y - bridge) * instrument
   return(NC.obj)
 }
 
@@ -212,48 +238,48 @@ NC.U0 = function(para,data){
 library(numDeriv)
 
 # GMM function
-GMMF <- function(mrf,para,data){
-  g0 <- mrf(para=para,data=data)
-  g <- apply(g0,2,mean)
-  gmmf <- sum(g^2)
+GMMF <- function(mrf, para, data){
+  g0 <- mrf(para = para, data = data)
+  g <- apply(g0, 2, mean)
+  gmmf <- sum(g ^ 2)
 
   return(gmmf)
 }
 
 # Derivative of score equations
 G1 <- function(bfun,para,data){
-  G1 <- apply(bfun(para,data),2,mean)
+  G1 <- apply(bfun(para,data), 2, mean)
   return(G1)
 }
 
-G <- function(bfun,para,data){
-  G <- jacobian(func=G1,bfun=bfun,x=para,data=data)
+G <- function(bfun, para, data){
+  G <- jacobian(func = G1, bfun = bfun, x = para, data = data)
   return(G)
 }
 
 # Variance estimation
-VAREST <- function(bfun,para,data){
-  bG <- solve(G(bfun,para,data))
-  bg <- bfun(para,data)
+VAREST <- function(bfun, para, data){
+  bG <- solve(G(bfun, para, data))
+  bg <- bfun(para, data)
   spsz <- dim(bg)[1]
-  Omega <- t(bg)%*%bg/spsz
-  Sigma <- bG%*%Omega%*%t(bG)
+  Omega <- t(bg) %*% bg/spsz
+  Sigma <- bG %*% Omega %*% t(bG)
 
   return(Sigma/spsz)
 }
 
 # Newey-West 1987 variance estimator for serially correlated data
-HAC_VAREST <- function(bfun,para,q,data){
-  bG <- solve(G(bfun,para,data))
-  bg <- bfun(para,data)
+HAC_VAREST <- function(bfun, para, q, data){
+  bG <- solve(G(bfun, para, data))
+  bg <- bfun(para, data)
   spsz <- dim(bg)[1]
-  hacOmega <- Omega <- t(bg)%*%bg/spsz
+  hacOmega <- Omega <- t(bg) %*% bg / spsz
   for(i in 1:q){
-    Omega_i <- t(bg[-(1:i),])%*%bg[1:(spsz-i),]/spsz
+    Omega_i <- t(bg[-(1:i),]) %*% bg[1:(spsz-i),] / spsz
     hacOmega <- hacOmega + (1 - i/(q+1))*(Omega_i + t(Omega_i))
   }
-  Sigma <- bG%*%Omega%*%t(bG)
-  hacSigma <- bG%*%hacOmega%*%t(bG)
+  Sigma <- bG %*% Omega %*% t(bG)
+  hacSigma <- bG %*% hacOmega %*% t(bG)
 
-  return(list(var=Sigma/spsz, hacvar=hacSigma/spsz))
+  return(list(var = Sigma/spsz, hacvar = hacSigma/spsz))
 }
