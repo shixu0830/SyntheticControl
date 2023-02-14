@@ -8,46 +8,52 @@
 ##### 09/26/2021                                      #####
 ###########################################################
 rm(list=ls())
-n.rep=10000
-t0.all=c(200,500,1000)
-n.units.all=c(1+2,1+10,1+20)
-arg1 = as.numeric(Sys.getenv("arg1")) ## arg1=1,2 dist.epsilon
-arg2 = as.numeric(Sys.getenv("arg2")) ## arg2=0,1 addcov
-arg3 = as.numeric(Sys.getenv("arg3")) ## arg3=1-10 myseeds
-myfilepath = ""
-source(paste0(myfilepath,"myfunctions_LinearSetting.R"))
-dist.epsilon = c("iid","AR")[arg1]
-addcov=(arg2==1)
-myseeds = 1:n.rep+(arg3-1)*n.rep
-theta=1
-true.beta=2
-mysd = 1
-epsilonARMAcor=0.1
+library(Synth)
+library(sandwich)
 
-rslt.all=NULL
-for(n.units in n.units.all){
-  for(t0.i in 1:length(t0.all)){
-    t0=t0.all[t0.i]
-    addt=t0
-    t=addt+t0
-    ## treatment indicator
-    X=c(rep(0,t0),rep(1,t-t0))
-    ## save results
-    ate.all = NULL
-    for(rep in myseeds){
-      rslt=run.one(rep,n.units,t,t0)
-      ate.all=rbind(ate.all,rslt)
-    }#for(rep in 1:n.rep){
-    rslt.all = append(rslt.all,
-                      list(ate.all=ate.all))
-  }#for(t0.i in 1:3){
-}#for(n.units in c(1+2,1+10,1+20))
+source("myfunctions_LinearSetting.R")
+param_grid <- expand.grid(n.rep = 200,
+                          t0 = c(50, 100, 200),
+                          n.units = c(1 + 2, 1 + 10, 1 + 20),
+                          dist.epsilon = c("iid", "AR"),
+                          addcov = c(TRUE, FALSE),
+                          batch = 1:10) 
 
-save(rslt.all,file=paste0(myfilepath,"LM",
-                          "epsilon_",dist.epsilon,
-                          "cov_",addcov,
-                          "t0_",paste(t0.all,collapse="_"),
-                          "nunits_",paste(n.units.all,collapse="_"),
-                          "nrep",n.rep,
-                          "argseeds",arg3,
-                          ".RData"))
+
+for (job_id in 1:nrow(param_grid)) {
+  n.rep <- param_grid[job_id, "n.rep"]
+  t0 <- param_grid[job_id, "t0"]
+  n.units <- param_grid[job_id, "n.units"]
+  dist.epsilon <- param_grid[job_id, "dist.epsilon"]
+  addcov <- param_grid[job_id, "addcov"]
+  batch <- param_grid[job_id, "batch"]
+  
+  
+  theta <- 1
+  true.beta <- 2
+  mysd <- 1
+  epsilonARMAcor <- 0.1
+  
+  t_star <- t0
+  t <- t_star + t0
+  
+  ## save results
+  myseeds <- (batch - 1) * n.rep + 1:n.rep
+  
+  rslt.all <- t(sapply(myseeds,
+                       function(seed) {
+                         run.one(seed = seed, n.units = n.units, t = t, t0 = t0,
+                                 mysd = mysd, theta = theta, true.beta = true.beta,
+                                 addcov = addcov, dist.epsilon = dist.epsilon,
+                                 epsilonARMAcor = epsilonARMAcor)
+                       }))
+  
+  saveRDS(rslt.all,file = paste0("results/LM_",
+                                 "epsilon_", dist.epsilon,
+                                 "cov_", addcov,
+                                 "t0_", t0,
+                                 "nunits_", n.units,
+                                 "nrep", n.rep,
+                                 "batch", batch,
+                                 ".rds"))
+}
