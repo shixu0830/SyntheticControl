@@ -13,7 +13,7 @@ library(sandwich)
 
 source("myfunctions_LinearSetting.R")
 param_grid <- expand.grid(n.rep = 200,
-                          t0 = c(50),
+                          t0 = c(50, 100, 200),
                           n.units = c(1 + 2, 1 + 10, 1 + 20),
                           dist.epsilon = c("iid", "AR"),
                           addcov = c(TRUE, FALSE),

@@ -65,14 +65,14 @@ run.one <- function(seed, n.units, t, t0, theta, true.beta, n.b,
   #### SC methods
   if (addcov == T){
     SC.model <- try(
-      gmm::gmm(g = Y ~ -1 + V + Xt + X + C.Y,
-               x = ~ -1 + V + Xt + X + C.Y,
+      gmm::gmm(g = Y ~ -1 + V + X + Xt + C.Y,
+               x = ~ -1 + V + X + Xt + C.Y,
                vcov = vcov.epsilon),
       silent = TRUE)
   } else {
     SC.model <- try(
-      gmm::gmm(g = Y~ -1 + V + Xt + X,
-               x = ~ -1 + V + Xt + X,
+      gmm::gmm(g = Y~ -1 + V + X + Xt,
+               x = ~ -1 + V + X + Xt,
                vcov = vcov.epsilon),
       silent = TRUE)
   }
@@ -86,83 +86,37 @@ run.one <- function(seed, n.units, t, t0, theta, true.beta, n.b,
   SC.ate.constrained <- rep(NA,n.b)
   #### NC methods
   if(addcov == T){
-    
-    ### adjust for covariates
-    NC.model <- try(
-      gmm::gmm(g = Y ~ -1 + W + Xt + X + C.Y,
-               x = ~ -1 + Z + Xt + X + C.Y,
-               wmatrix = "ident",
-               vcov = "iid"),
-      silent = TRUE)
-    NC.ate2 <- summary(NC.model)$coef[grep("X", names(coef(NC.model))), "Estimate"]
-    NC.se2  <- summary(NC.model)$coef[grep("X", names(coef(NC.model))), "Std. Error"]
-    NC.model <- try(
-      gmm::gmm(g = Y ~ -1 + W + Xt + X + C.Y,
-               x = ~ -1 + Z + Xt + X + C.Y,
-               wmatrix = "ident",
-               vcov = "HAC"),
-      silent = TRUE)
-    NC.se2.HAC <- summary(NC.model)$coef[grep("X", names(coef(NC.model))), "Std. Error"]
-    
-    ### ignore covariates
-    NC.model <- try(
-      gmm::gmm(g = Y ~ -1 + W + Xt + X,
-               x = ~ -1 + Z + Xt + X,
-               wmatrix = "ident",
-               vcov = "iid"),
-      silent = TRUE)
-    NC.ate <- summary(NC.model)$coef[grep("X", names(coef(NC.model))), "Estimate"]
-    NC.se  <- summary(NC.model)$coef[grep("X", names(coef(NC.model))), "Std. Error"]
-    NC.model <- try(
-      gmm::gmm(g = Y~ -1 + W + Xt + X,
-               x = ~ -1 + Z + Xt + X,
-               wmatrix = "ident",
-               vcov = "HAC"),
-      silent = TRUE)
-    NC.se.HAC <- summary(NC.model)$coef[grep("X", names(coef(NC.model))), "Std. Error"]
-    
-    ### by hand GMM
+    ### adjusting covariates
     data <- list(X = X, Xt = Xt, Y = Y, W = W, Z = Z, C.Y = C.Y, C.W = C.W, C.Z = C.Z)
-    NC2 <- mygmm(NC.U.func = NC.U0, data = data, loc.X = n.b + ncol(W) + 1, n.b = n.b)
-    NC.ate3 <- as.numeric(NC2[grep("NC.ate2", names(NC2))])
-    NC.se3 <- as.numeric(NC2[grep("NC.se2",names(NC2))])
-    NC.se3.HAC <- as.numeric(NC2[grep("NC.se2.HAC",names(NC2))])
+    NC2 <- NC_SC(data)
+    NC.ate2 <- as.numeric(NC2[c("NC.ate21", "NC.ate22")])
+    NC.se2 <- as.numeric(NC2[c("NC.se21", "NC.se22")])
+    NC.se2.HAC <- as.numeric(NC2[c("NC.se2.HAC1", "NC.se2.HAC2")])
+    
+    ## ignoring covariates
+    data <- list(X = X, Xt = Xt, Y = Y, W = W, Z = Z)
+    NC2 <- NC_SC_nocov(data)
+    NC.ate1 <- as.numeric(NC2[c("NC.ate21", "NC.ate22")])
+    NC.se1 <- as.numeric(NC2[c("NC.se21", "NC.se22")])
+    NC.se1.HAC <- as.numeric(NC2[c("NC.se2.HAC1", "NC.se2.HAC2")])
+    
   } else {
-    NC.model <- try(
-      gmm::gmm(g = Y ~ -1 + W + Xt + X,
-             x = ~ -1 + Z + Xt + X,
-             wmatrix = "ident",
-             vcov = "iid"),
-      silent = TRUE)
-    NC.ate2 = summary(NC.model)$coef[grep("X",names(coef(NC.model))), "Estimate"]
-    NC.se2  = summary(NC.model)$coef[grep("X",names(coef(NC.model))), "Std. Error"]
-    NC.model = try(
-      gmm::gmm(g = Y ~ -1 + W + Xt + X,
-               x = ~-1 + Z + Xt + X,
-               wmatrix = "ident",
-               vcov = "HAC"),
-      silent = TRUE)
-    NC.se2.HAC = summary(NC.model)$coef[grep("X",names(coef(NC.model))),"Std. Error"]
+    data <- list(X = X, Xt = Xt, Y = Y, W = W, Z = Z)
+    NC2 <- NC_SC_nocov(data)
+    NC.ate2 <- as.numeric(NC2[c("NC.ate21", "NC.ate22")])
+    NC.se2 <- as.numeric(NC2[c("NC.se21", "NC.se22")])
+    NC.se2.HAC <- as.numeric(NC2[c("NC.se2.HAC1", "NC.se2.HAC2")])
     
-    ### by hand GMM
-    data <- list(X = X, Xt = Xt, Y = Y, Z = Z, W = W)
-    NC2 <- mygmm(NC.U.func = NC.U0.nocov, data = data, loc.X = n.b + ncol(W), n.b = n.b)
-    NC.ate3 <- as.numeric(NC2[grep("NC.ate2", names(NC2))])
-    NC.se3 <- as.numeric(NC2[grep("NC.se2", names(NC2))])
-    NC.se3.HAC <- as.numeric(NC2[grep("NC.se2.HAC", names(NC2))])
-    
-    NC.ate <- NC.se <- NC.se.HAC <- rep(NA,n.b)
+    NC.ate1 <- NC.se1 <- NC.se1.HAC <- rep(NA, n.b)
   }#if(addcov==T){
   
   return(c(SC.ate = SC.ate, ## unconstrained OLS
-           NC.ate = NC.ate,##NC ignore C
+           NC.ate1 = NC.ate1,##NC ignore C
            NC.ate2 = NC.ate2,##NC adjust C
-           NC.ate3 = NC.ate3, ##by hand
            SC.se = SC.se, ## unconstrained OLS
-           NC.se = NC.se, NC.se.HAC = NC.se.HAC, ##NC ignore C
+           NC.se1 = NC.se1, NC.se1.HAC = NC.se1.HAC, ##NC ignore C
            NC.se2 = NC.se2, NC.se2.HAC = NC.se2.HAC##NC adjust C
-           ,NC.se3 = NC.se3, NC.se3.HAC = NC.se3.HAC ##by hand
-           ))
+  ))
 }#run.one
 
 gen.lambda <- function(t, mysd){
@@ -184,117 +138,54 @@ generate.U <- function(n.units, t, mysd){
   return(list(U = U, U.trt.prob = U.trt.prob, lambda.t = lambda.t))
 }
 
-mygmm <- function(NC.U.func, data, loc.X, n.b){
-  NC.weights <- try(
-    optim(par = rep(0,loc.X),
-          fn = GMMF, mrf = NC.U.func,
-          data = data,
-          method = "BFGS", hessian = FALSE)$par,
-    silent = TRUE)
-  var_est <- try(HAC_VAREST(bfun = NC.U.func, para = NC.weights, data = data, q = 10), 
-                 silent = TRUE)
-  if((!inherits(NC.weights, "try-error"))&
-     (!inherits(var_est, "try-error"))){
-    NC.se2 <- diag(var_est$var)
-    NC.se2.HAC <- diag(var_est$hacvar)
-    NC.ate2 <- NC.weights[loc.X + 0:(1 - n.b)] #return slope followed by intercept
-    NC.se2 <- sqrt(NC.se2[loc.X+0:(1-n.b)])
-    NC.se2.HAC <- sqrt(NC.se2.HAC[loc.X + 0:(1 - n.b)])
-  } else {
-    NC.ate2 <- NC.se2 <- NC.se2.HAC <- rep(NA, n.b)
-  }
-  return(c(NC.ate2 = NC.ate2, NC.se2 = NC.se2, NC.se2.HAC = NC.se2.HAC))
-}
-
-NC.U0.nocov = function(para,data){
-  X=cbind(data$X)
-  Xt=cbind(data$Xt)
-  Y=cbind(data$Y);
-  Z=cbind(data$Z)
-  W=cbind(data$W)
-  omega.u = para[1:ncol(W)]
-  beta0 = para[ncol(W)+1]
-  beta1 = para[ncol(W)+2]
-  instrument = cbind(
-    Z, #c(1-X)*Z, #if pre and post two-stage
-    X,
-    Xt
-  )
-  bridge = (
-    X*beta0 + Xt*beta1 + W%*%omega.u
-  )
-  NC.obj=c(  Y-bridge   )*(instrument)
-  return(NC.obj)
-}
-
-NC.U0 = function(para,data){
-  X=cbind(data$X); Xt=cbind(data$Xt)
-  Y=cbind(data$Y); C.Y=cbind(data$C.Y)
-  Z=cbind(data$Z); C.Z=cbind(data$C.Z)
-  W=cbind(data$W); C.W=cbind(data$C.W)
-  theta.u = para[1]
-  omega.u = para[1+1:ncol(W)]
-  beta0 = para[1+ncol(W)+1]
-  beta1 = para[1+ncol(W)+2]
-  Ztheta = Z-C.Z*theta.u
-  Comega = C.Y-C.W%*%omega.u
-  instrument = cbind(
-    Ztheta, #c(1-X)*Z, #if pre and post two-stage
-    Comega,
-    X,
-    Xt
-  )
-  bridge = (
-    X*beta0 + Xt*beta1 + W%*%omega.u + Comega*theta.u
-  )
-  NC.obj=c(  Y-bridge  )*(instrument)
-  return(NC.obj)
-}
-
-library(numDeriv)
-# GMM function
-GMMF <- function(mrf,para,data){
-  g0 <- mrf(para=para,data=data)
-  g <- apply(g0,2,mean)
-  gmmf <- sum(g^2)
-
-  return(gmmf)
-}
-
-# Derivative of score equations
-G1 <- function(bfun,para,data){
-  G1 <- apply(bfun(para,data),2,mean)
-  return(G1)
-}
-
-G <- function(bfun,para,data){
-  G <- jacobian(func=G1,bfun=bfun,x=para,data=data)
-  return(G)
-}
-
-# Variance estimation
-VAREST <- function(bfun,para,data){
-  bG <- solve(G(bfun,para,data))
-  bg <- bfun(para,data)
-  spsz <- dim(bg)[1]
-  Omega <- t(bg)%*%bg/spsz
-  Sigma <- bG%*%Omega%*%t(bG)
-
-  return(Sigma/spsz)
-}
-
-# Newey-West 1987 variance estimator for serially correlated data
-HAC_VAREST <- function(bfun, para, q, data){
-  bG <- solve(G(bfun,para,data))
-  bg <- bfun(para,data)
-  spsz <- dim(bg)[1]
-  hacOmega <- Omega <- t(bg)%*%bg/spsz
+# Negative control approach to synthetic control
+NC_SC <- function(data, q = 10) {
+  S1 <- with(data, cbind(X, Xt, W, C.Y, C.W))
+  S2 <- with(data, cbind(X, Xt, Z, C.Y, C.W))
+  Y <- data$Y
+  spsz <- length(data$X)
+  theta_est <- MASS::ginv(t(S1) %*% S2 %*% t(S2) %*% S1) %*% t(S1) %*% S2 %*% t(S2) %*% Y
+  
+  bg <- c(Y - S1 %*% theta_est) * S2
+  bG <- - MASS::ginv(t(S2) %*% S1 / spsz)
+  
+  # "sandwich" variance estimate and Newey-West HAC variance
+  hacOmega <- Omega <- t(bg) %*% bg / spsz
   for(i in 1:q){
-    Omega_i <- t(bg[-(1:i),])%*%bg[1:(spsz-i),]/spsz
+    Omega_i <- t(bg[-(1:i),]) %*% bg[1:(spsz-i),] / spsz
     hacOmega <- hacOmega + (1 - i/(q+1))*(Omega_i + t(Omega_i))
   }
   Sigma <- bG %*% Omega %*% t(bG)
   hacSigma <- bG %*% hacOmega %*% t(bG)
+  
+  VAR <- Sigma/spsz; HACVAR <- hacSigma/spsz
+  
+  return(c(NC.ate2 = theta_est[1:2], NC.se2 = sqrt(c(VAR[1, 1], VAR[2, 2])), 
+           NC.se2.HAC = sqrt(c(HACVAR[1, 1], c(HACVAR[2, 2])))))
+}
 
-  return(list(var = Sigma / spsz, hacvar = hacSigma / spsz))
+# Negative control approach to synthetic control, ignoring covariates
+NC_SC_nocov <- function(data, q = 10) {
+  S1 <- with(data, cbind(X, Xt, W))
+  S2 <- with(data, cbind(X, Xt, Z))
+  Y <- data$Y
+  spsz <- length(data$X)
+  theta_est <- MASS::ginv(t(S1) %*% S2 %*% t(S2) %*% S1) %*% t(S1) %*% S2 %*% t(S2) %*% Y
+  
+  bg <- c(Y - S1 %*% theta_est) * S2
+  bG <- - MASS::ginv(t(S2) %*% S1 / spsz)
+  
+  # "sandwich" variance estimate and Newey-West HAC variance
+  hacOmega <- Omega <- t(bg) %*% bg / spsz
+  for(i in 1:q){
+    Omega_i <- t(bg[-(1:i),]) %*% bg[1:(spsz-i),] / spsz
+    hacOmega <- hacOmega + (1 - i/(q+1))*(Omega_i + t(Omega_i))
+  }
+  Sigma <- bG %*% Omega %*% t(bG)
+  hacSigma <- bG %*% hacOmega %*% t(bG)
+  
+  VAR <- Sigma/spsz; HACVAR <- hacSigma/spsz
+  
+  return(c(NC.ate2 = theta_est[1:2], NC.se2 = sqrt(c(VAR[1, 1], VAR[2, 2])), 
+           NC.se2.HAC = sqrt(c(HACVAR[1, 1], c(HACVAR[2, 2])))))
 }
